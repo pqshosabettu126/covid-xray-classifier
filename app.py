@@ -24,11 +24,6 @@ def load_model():
 
 model = load_model()
 
-# Grad-CAM
-@st.cache_resource
-def get_gradcam():
-    return GradCAM(model, target_layer="layer4")
-
 # Image transform
 transform = transforms.Compose([
     transforms.Resize((224, 224)),
@@ -36,8 +31,6 @@ transform = transforms.Compose([
     transforms.Normalize(mean=[0.485, 0.456, 0.406],
                          std=[0.229, 0.224, 0.225])
 ])
-
-cam_extractor = get_gradcam()
 
 # UI
 st.title("🩺 COVID-19 Chest X-ray Classifier with Grad-CAM")
@@ -51,26 +44,25 @@ if uploaded_file:
 
     # Preprocess image
     input_tensor = transform(image).unsqueeze(0).to(DEVICE)
-
-    # Clear old hooks and re-enable
-    cam_extractor.clear_hooks()
-    cam_extractor._hooks_enabled = True
-
-    # Forward pass with gradient tracking
     input_tensor.requires_grad = True
+
+    # Forward pass
     output = model(input_tensor)
     pred_class = output.argmax(dim=1).item()
     score = output[0, pred_class]
 
-    # Backward pass to compute gradients
+    # Backward pass
     model.zero_grad()
     score.backward()
 
-    # Generate CAM (now gradients are available)
+    # Re-initialize GradCAM to ensure fresh hooks
+    cam_extractor = GradCAM(model, target_layer="layer4")
+
+    # Generate CAM
     cams = cam_extractor(pred_class, output)
     cam = cams[0]
 
-    # Resize CAM to match input image
+    # Resize CAM
     cam = F.interpolate(cam.unsqueeze(0).unsqueeze(0), size=(224, 224), mode="bilinear", align_corners=False)
     cam = cam.squeeze().cpu()
 
