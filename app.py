@@ -52,15 +52,22 @@ if uploaded_file:
     # Preprocess image
     input_tensor = transform(image).unsqueeze(0).to(DEVICE)
 
-    # ---- Attach hooks BEFORE forward pass ----
+    # Clear old hooks and re-enable
+    cam_extractor.clear_hooks()
     cam_extractor._hooks_enabled = True
 
-    # Forward pass
+    # Forward pass with gradient tracking
+    input_tensor.requires_grad = True
     output = model(input_tensor)
     pred_class = output.argmax(dim=1).item()
+    score = output[0, pred_class]
 
-    # Generate CAM (triggers backward pass and uses hooks)
-    cams = cam_extractor(class_idx=pred_class, scores=output)
+    # Backward pass to compute gradients
+    model.zero_grad()
+    score.backward()
+
+    # Generate CAM (now gradients are available)
+    cams = cam_extractor(pred_class, output)
     cam = cams[0]
 
     # Resize CAM to match input image
@@ -75,8 +82,7 @@ if uploaded_file:
         st.write(f"- {CLASSES[i]}: {prob.item():.4f}")
 
     # Grad-CAM overlay
-    image_tensor = transform(image)
-    original = to_pil_image(image_tensor)
+    original = to_pil_image(transform(image))
     fig, ax = plt.subplots()
     ax.imshow(original)
     ax.imshow(cam, cmap="jet", alpha=0.5)
