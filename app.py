@@ -39,7 +39,7 @@ transform = transforms.Compose([
                          std=[0.229, 0.224, 0.225])
 ])
 
-# UI
+# Streamlit UI
 st.title("🩺 COVID-19 Chest X-ray Classifier with Grad-CAM")
 st.write("Upload a chest X-ray image to classify it and visualize model attention.")
 
@@ -49,27 +49,27 @@ if uploaded_file:
     image = Image.open(uploaded_file).convert("RGB")
     st.image(image, caption="Uploaded Image", use_container_width=True)
 
-    # Preprocess
+    # Preprocess image
     input_tensor = transform(image).unsqueeze(0).to(DEVICE).requires_grad_()
 
-    # Clear Grad-CAM hooks
-    cam_extractor._hooks_enabled = False  # disable old hooks
-    cam_extractor._hooks_enabled = True   # enable new ones
-
-    # Forward & backward pass for Grad-CAM
+    # Forward pass
     output = model(input_tensor)
     pred_class = output.argmax(dim=1).item()
 
+    # Backward pass for Grad-CAM
     score = output[0, pred_class]
     model.zero_grad()
     score.backward(retain_graph=True)
 
-    # Extract CAM
-    cam_extractor(class_idx: int, scores: torch.Tensor)
+    # Extract Grad-CAM
+    cams = cam_extractor(pred_class, output)
+    cam = cams[0]  # Only one image
+
+    # Resize CAM to match image
     cam = F.interpolate(cam.unsqueeze(0).unsqueeze(0), size=(224, 224), mode="bilinear", align_corners=False)
     cam = cam.squeeze().cpu()
 
-    # Display prediction
+    # Prediction display
     probabilities = F.softmax(output[0].detach(), dim=0)
     st.markdown(f"### 🧠 Prediction: **{CLASSES[pred_class]}**")
     st.markdown("#### 🔍 Class Probabilities:")
