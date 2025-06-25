@@ -65,7 +65,7 @@ if uploaded_file:
     score.backward(retain_graph=True)
 
     # Extract CAM
-    cam = cam_extractor(pred_class)[0]
+    cam_extractor(class_idx: int, scores: torch.Tensor)
     cam = F.interpolate(cam.unsqueeze(0).unsqueeze(0), size=(224, 224), mode="bilinear", align_corners=False)
     cam = cam.squeeze().cpu()
 
