@@ -53,7 +53,8 @@ if uploaded_file:
     input_tensor = transform(image).unsqueeze(0).to(DEVICE).requires_grad_()
 
     # Clear Grad-CAM hooks
-    cam_extractor.clear_hooks()
+    cam_extractor._hooks_enabled = False  # disable old hooks
+    cam_extractor._hooks_enabled = True   # enable new ones
 
     # Forward & backward pass for Grad-CAM
     output = model(input_tensor)
