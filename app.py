@@ -24,12 +24,10 @@ def load_model():
 
 model = load_model()
 
-# Initialize Grad-CAM
+# Grad-CAM
 @st.cache_resource
 def get_gradcam():
     return GradCAM(model, target_layer="layer4")
-
-cam_extractor = get_gradcam()
 
 # Image transform
 transform = transforms.Compose([
@@ -39,7 +37,9 @@ transform = transforms.Compose([
                          std=[0.229, 0.224, 0.225])
 ])
 
-# Streamlit UI
+cam_extractor = get_gradcam()
+
+# UI
 st.title("🩺 COVID-19 Chest X-ray Classifier with Grad-CAM")
 st.write("Upload a chest X-ray image to classify it and visualize model attention.")
 
@@ -50,22 +50,20 @@ if uploaded_file:
     st.image(image, caption="Uploaded Image", use_container_width=True)
 
     # Preprocess image
-    input_tensor = transform(image).unsqueeze(0).to(DEVICE).requires_grad_()
+    input_tensor = transform(image).unsqueeze(0).to(DEVICE)
+
+    # ---- Attach hooks BEFORE forward pass ----
+    cam_extractor._hooks_enabled = True
 
     # Forward pass
     output = model(input_tensor)
     pred_class = output.argmax(dim=1).item()
 
-    # Backward pass for Grad-CAM
-    score = output[0, pred_class]
-    model.zero_grad()
-    score.backward(retain_graph=True)
+    # Generate CAM (triggers backward pass and uses hooks)
+    cams = cam_extractor(class_idx=pred_class, scores=output)
+    cam = cams[0]
 
-    # Extract Grad-CAM
-    cams = cam_extractor(pred_class, output)
-    cam = cams[0]  # Only one image
-
-    # Resize CAM to match image
+    # Resize CAM to match input image
     cam = F.interpolate(cam.unsqueeze(0).unsqueeze(0), size=(224, 224), mode="bilinear", align_corners=False)
     cam = cam.squeeze().cpu()
 
