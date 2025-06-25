@@ -11,19 +11,21 @@ import torch.nn.functional as F
 
 # Class names
 CLASSES = ["COVID", "Normal", "Viral Pneumonia"]
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 # Load model
 @st.cache_resource
 def load_model():
     model = models.resnet18(weights="DEFAULT")
     model.fc = nn.Linear(model.fc.in_features, len(CLASSES))
-    model.load_state_dict(torch.load("covid_classifier.pth", map_location=torch.device("cpu")))
+    model.load_state_dict(torch.load("covid_classifier.pth", map_location=DEVICE))
+    model.to(DEVICE)
     model.eval()
     return model
 
 model = load_model()
 
-# Load Grad-CAM extractor
+# Grad-CAM extractor (re-initialize after model is loaded)
 @st.cache_resource
 def get_gradcam():
     return GradCAM(model, target_layer="layer4")
@@ -40,36 +42,35 @@ transform = transforms.Compose([
 
 # Streamlit UI
 st.title("🩺 COVID-19 Chest X-ray Classifier with Grad-CAM")
-st.write("Upload a chest X-ray image to classify it and visualize model attention.")
+st.write("Upload a chest X-ray image to classify it and visualize where the model is focusing.")
 
-uploaded_file = st.file_uploader("Upload a chest X-ray image", type=["jpg", "png", "jpeg"])
+uploaded_file = st.file_uploader("📤 Upload a chest X-ray image", type=["jpg", "png", "jpeg"])
 
 if uploaded_file is not None:
     image = Image.open(uploaded_file).convert("RGB")
-    st.image(image, caption="Uploaded Image",  use_container_width=True)
+    st.image(image, caption="Uploaded Image", use_container_width=True)
 
     # Preprocess
-    input_tensor = transform(image).unsqueeze(0)
+    input_tensor = transform(image).unsqueeze(0).to(DEVICE)
 
-    # Forward pass
-    with torch.no_grad():
+    # Forward pass (with gradient tracking for Grad-CAM)
+    with torch.set_grad_enabled(True):
         output = model(input_tensor)
         probabilities = torch.nn.functional.softmax(output[0], dim=0)
         pred_class = probabilities.argmax().item()
+
+        # Grad-CAM heatmap
+        cam = cam_extractor(pred_class, output)[0]
+        cam = F.interpolate(cam.unsqueeze(0).unsqueeze(0), size=(224, 224), mode="bilinear", align_corners=False)
+        cam = cam.squeeze().detach().cpu()
 
     st.markdown(f"### 🧠 Prediction: **{CLASSES[pred_class]}**")
     st.markdown("#### 🔍 Class Probabilities:")
     for i, prob in enumerate(probabilities):
         st.write(f"- {CLASSES[i]}: {prob.item():.4f}")
 
-    # Grad-CAM heatmap
-    cam = cam_extractor(pred_class, output)[0]
-    cam = F.interpolate(cam.unsqueeze(0).unsqueeze(0), size=(224, 224), mode="bilinear", align_corners=False)
-    cam = cam.squeeze().detach().cpu()
-
-    image_tensor = transform(image)
-    original = to_pil_image(image_tensor)
-
+    # Grad-CAM overlay
+    original = to_pil_image(transform(image))
     fig, ax = plt.subplots()
     ax.imshow(original)
     ax.imshow(cam, cmap="jet", alpha=0.5)
